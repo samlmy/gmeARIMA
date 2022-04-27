@@ -1,12 +1,11 @@
 ---
-title: "My title"
-subtitle: "My subtitle if needed"
+title: "Performance of Time Series Analysis in Predicating Volitile Stock Price"
+subtitle: "Using ARIMA to Forecast the Stock Price of Gamestop"
 author: 
-  - First author
-  - Another author
-thanks: "Code and data are available at: LINK."
+  - Mingyang Li
+thanks: "Code and data are available at: https://github.com/samlmy/gmeARIMA.git"
 date: "`r format(Sys.time(), '%d %B %Y')`"
-abstract: "First sentence. Second sentence. Third sentence. Fourth sentence."
+abstract: "This report builds an ARIMA model of the Gamestop company stock to examine the effectiveness of a statistical approach in equity predictions. Using the time series analysis method, ARIMA(4, 0, 4) is the final model left for forecast. The model is then used to predict 10 daily returns after the testing data cutoff, and the result of the first four was close to the actual data. In conclusion, ARIMA can be used to predict stock performance when the statistical assumption of the model is satisified, but there is also visible boundry to this strategy."
 output:
   bookdown::pdf_document2
 toc: FALSE
@@ -15,88 +14,157 @@ bibliography: references.bib
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-
+#import libaries
 library(tidyverse)
-library(palmerpenguins)
+library(tidyquant)
+library(astsa)
+library(ggplot2)
+library(knitr)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+#load data
+gme <- read_csv(here::here("inputs/data/gme.csv"), show_col_types = FALSE)
+#head(gme)
 ```
 
 # Introduction
-
-You can and should cross-reference sections and sub-sections. For instance, Section \@ref(data). R Markdown automatically makes the sections lower case and adds a dash to spaces to generate labels, for instance, Section \@ref(first-discussion-point). 
-
+Time series analysis is a specific statistical practice that is applied to forecast data collected over a constant time interval [@citeArima]. The stock market perfectly fits the application of time series analysis because the return of investment can be formulated into a time series, and stock traders often make decisions based on how they believe the company will perform in the future. In fact, the recent trend of stock strategies suggests that more traders have begun to favor technical analysis, which relies on techniques from time series analysis, such as Autoregressive Integrated Moving Average (ARIMA)[@citeTech]. The motivation behind this trend of technical routines is firstly that it promises fruitful results in investors’ portfolios, while other industries have also proven the value of statistics. However, this paper wants to emphasize that statistical models including ARIMA have very high standards for the data to match in order to produce reliable results. As an example, ARIMA models the time series with the presumption that the data is stationary. Also, autoregressive models only work on univariate data. These assumptions imply that the return of a stock should not be dependent on trading days, and its predictability should only depend on the historical returns. Apparently, many people do not agree on assessing an equity by only looking at its price in the past. These fundamental traders believe there is more in stock prediction than its historical stock values. As a result, the objective of this report is to examine whether ARIMA would still be robust when analyzing a stock that has had unexpected performance trends. The company that the report focuses on is GameStop. This company's stock price has been volatile over the past year, and the news about the company's business has been an important catalyst in the stock price. In the remaining sections of this paper, we will first examine and convert the return of Gamestop’s stock into a stationary time series. Through a diagnostic check on the models we proposed, we will filter out the best model and compare its prediction with the testing set of data. All of the technical work is conducted through the use of the statistical programming language R [@citeR].
 
 
 # Data
+The report uses the data obtained from `tidyquant`, which allows us to get the most up to date stock prices formatted in time series [@citetquant]. There are 371 observations and 7 variables including index. The raw data contains the opening, closing, daily high, daily low, adjusted price and volume of each regular trading day from November 1, 2020 to April 25, 2022. The variable of interest is the daily closing price, which refers to the price that the stock is traded at by the end of a trading day. When a trading platform shows how much a stock has surged or plummeted in percentage or dollar value, it compares the closing price with the current price to calculate those values. The closing price is also commonly used to portray the trend of a stock. We recreated the plot of stock closing prices on a daily interval using `ggplot2` [@citeggplot]. Figure \@ref(fig:1) shows the trend of the GameStop stock price within the past 371 regular trading days. The reason why `tidyquant` is preferred in this study is because it provides the data in a time series format; stock price over regular trading days in this case [@citetquant]. Furthermore, we constructed a daily return variable for the modeling we needed later. The daily return shows the percentage of increase or decrease of the closing price from current trade day versus the previous day. The purpose of this variable is that modeling ARIMA require the data to be stationary and to have a mean of zero. By plotting the daily return, figure \@ref(fig:2) illustrated a time series centered at zero. We assume that this time series is also stationary, because there is no obvious pattern. Combining the daily return to the original dataset provides 370 observations instead of 371. This is because the daily return is the difference of each observation, leaving the 1st of November 2020 to have null value. We took out the last ten days of return as the testing dataset. Tables in this reported is created through `knitr` [@citeknitr]. Diagnostics and forecast of ARIMA is done through `astsa` [@citeastsa].
 
-Our data is of penguins (Figure \@ref(fig:bills)).
-
-```{r bills, fig.cap="Bills of penguins", echo = FALSE}
-ggplot(penguins, aes(x = island, fill = species)) +
-  geom_bar(alpha = 0.8) +
-  scale_fill_manual(values = c("darkorange","purple","cyan4"),
-                    guide = FALSE) +
-  theme_minimal() +
-  facet_wrap(~species, ncol = 1) +
-  coord_flip()
+```{r 1, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="GME's daily closing price from November 1, 2020 to April 25, 2022 which is a total of 371 regular trading days"}
+#Drawing gme trend
+ggplot(gme, aes(x=...1, y = GME.Close)) +
+  geom_line() +
+  labs(x = "Trading Day", y="Closing Price", title = "GME Daily Closing Price") +
+  theme_minimal()
 ```
 
-Talk more about it.
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+#obtain data as time series
+options("getSymbols.warning4.0"=FALSE)
+options("getSymbols.yahoo.warning"=FALSE)
 
-Also bills and their average (Figure \@ref(fig:billssssss)). (Notice how you can change the height and width so they don't take the whole page?)
+gme_ts <- getSymbols("GME", from = '2020-11-01',
+                  to = "2022-04-24", warnings = FALSE,
+                  auto.assign = FALSE)
+#create new variable
+gme_ts$returns <- diff(gme_ts$GME.Close, arithmetic=FALSE ) - 1
+#exclude row with na value
+gme_ts <- gme_ts[-1,]
 
-```{r billssssss, fig.cap="More bills of penguins", echo = FALSE, fig.width=8, fig.height=4}
+train <- gme_ts[1:360,]
 
-# This needs to be about the random data tha tI sasmpled?
-ggplot(penguins, aes(x = island, fill = species)) +
-  geom_bar(alpha = 0.8) +
-  scale_fill_manual(values = c("darkorange","purple","cyan4"),
-                    guide = FALSE) +
-  theme_minimal() +
-  facet_wrap(~species, ncol = 1) +
-  coord_flip()
+test <- gme_ts[-c(1:360),]
 ```
 
-Talk way more about it. 
+```{r 2, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="GME's daily return in percentage from November 2, 2020 to April 25, 2022 which is a total of 370 regular trading days"}
+plot(gme_ts$returns*100, main = "GME Daily Returns")
+
+```
 
 
 
 # Model
+Modeling with ARIMA firstly requires us to identify the lag cut offs by plotting the autocorrelation function (ACF) and the partial autocorrelation function (PACF). The first thing to note is that both ACF and PACF has a fast decay, which means we can use the data as it is and it does not require further transformation. The ACF plot suggests a cut off at lag 4, and PACF also indicates a cut off at lag 4. Hence, we propose the following three models: ARIMA(4, 0, 0), ARIMA(0, 0, 4), ARIMA(4, 0, 4). The selection of model is done by inspecting the Akaike Information Criteria (AIC). AIC correction (AICc) is the value we want to examine in particular, as it tells us whether the model is a good fit when the sample size is finite. Table \@ref(tab:t1) shows all the corresponding AICc for each model, and the lower the value, the better the fit, which means that ARIMA(4, 0, 4) is on top of the selection. ARIMA(4, 0, 4) is written out as
+$$
+x_t = \mu_0 +\phi_1 \cdot x_{t-1} +\phi_2 \cdot x_{t-2} + \phi_3 \cdot x_{t-3} + \phi_4 \cdot x_{t-4} + w_t - \theta_1 \cdot w_{t-1}- \theta_2 \cdot w_{t-2}- \theta_3 \cdot w_{t-3}- \theta_4 \cdot w_{t-4}
+$$
+$x_t$ is the daily return of gme on $t$th trading day. $w_t$ is the error term on the $t$th trading day. $\mu_0$ is the intercept in the daily return that is always added towards the prediction. $\phi_i$ and $\theta_i$ stands for the $i$th autoregression (AR) coefficient, and moving average (MA) coefficient, respectively. Finally, we need to justify the model by checking whether it meets the assumption of the analysis. This step is done by inspecting the diagnostic plots. We want to see constant variance and mean centered at zero in the Standardized Residuals, meaning there is no dependence in residual errors. There should be no lags surpassing the significance level at 5% in ACF of Residuals, suggesting the residual is random. Normal Q-Q Plot of Std Residuals indicates the assumption of normality when all points fall on the straight line. P-value for Ljung-Box statistic should show points above the 5% significant level to indicate that the residuals are independently distributed. Figure \@ref(fig:3) demonstrates the four diagnostics mentioned above, and there are visible issues with the model, such as outliers. However, we can safely say that the assumptions are mostly satisfied for the purpose of this analysis. The parameter estimation of the model will be displayed in the \@ref(result) section; more issues about assumptions violation will be further explored in the \@ref(discussion) section. 
 
-\begin{equation}
-Pr(\theta | y) = \frac{Pr(y | \theta) Pr(\theta)}{Pr(y)}  (\#eq:bayes)
-\end{equation}
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+acf <- acf(train$returns, plot = FALSE)
+pacf <- pacf(train$returns, plot = FALSE)
+```
 
-Equation \@ref(eq:bayes) seems useful, eh?
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+#plot acf
+plot(acf, main = "GME Daily Return Time Series ACF")
+```
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+#plot pacf
+plot(pacf, main = "GME Daily Return Time Series PACF")
+```
 
-Here's a dumb example of how to use some references: In paper we run our analysis in `R` [@citeR]. We also use the `tidyverse` which was written by @thereferencecanbewhatever If we were interested in baseball data then @citeLahman could be useful. 
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
 
-We can use maths by including latex between dollar signs, for instance $\theta$.
+#fit models
+fit1 <- arima(train$returns, order = c(4, 0, 0))
 
+fit2 <- arima(train$returns, order = c(0, 0, 4))
+
+fit3 <- arima(train$returns, order = c(4, 0, 4))
+
+#calculate AICc for each model
+npar <- length(fit1$coef) + 1
+nstar <- length(fit1$residuals) - fit1$arma[6] - fit1$arma[7] *fit1$arma[5]
+
+aicc1 <- fit1$aic + 2 * npar * (nstar/(nstar - npar - 1) - 1)
+
+npar <- length(fit2$coef) + 1
+nstar <- length(fit2$residuals) - fit2$arma[6] - fit2$arma[7] *fit2$arma[5]
+
+aicc2 <- fit2$aic + 2 * npar * (nstar/(nstar - npar - 1) - 1)
+
+npar <- length(fit3$coef) + 1
+nstar <- length(fit3$residuals) - fit3$arma[6] - fit3$arma[7] *fit3$arma[5]
+
+aicc3 <- fit3$aic + 2 * npar * (nstar/(nstar - npar - 1) - 1)
+
+aiccs <- c(aicc1, aicc2, aicc3)
+
+```
+
+```{r t1, echo=FALSE, warning=FALSE, message=FALSE}
+kable(aiccs, row.names = TRUE, col.names = c("AICc"), caption = "AICc of ARIMA(4, 0, 0), (0, 0, 4), (4, 0, 4) in numbered order")
+```
+
+```{r 3, echo=FALSE, warning=FALSE, message=FALSE, fig.cap="ARIMA(4, 0, 4) assumption check diagnositics"}
+
+mo1 = capture.output(diag <- sarima(train$returns, 4, 0, 4))
+```
 
 # Results
+Table \@ref(tab:t2) shows the estimated parameter of ARIMA(4, 0, 4). The AR coefficients corresponds to $\phi$ in the equation, and MA are $\theta$. Xmean is the intercept. For example, AR1 means that the predicted return $x_t$ on day $t$ changes by -26.3% of the return on day $t-1$. On the other hand, MA1 suggests that the predicted return  on day $t$ will change by 34.22% of the error term on day $t-1$. Adding each term multiplied by the corresponding coefficient will give us the forecast on the given $t$th trading day. We have left 10 trading days for testing in the preparation phase, thus we will forecast the daily returns of 10 regular trading days after April 8, 2022. The predicted daily return of GME with ARIMA(4, 0, 4) built on training data are shown in figure \@ref(fig:4) and table \@ref(tab:t3). The red data points highlighted in figure \@ref(fig:4) stands for the prediction, and the grey area is the 95% confidence interval of the forecast return. The actual daily returns are displayed in table \@ref(tab:t4) It turns out that the first five predicted returns closely resembles the actual data, with a difference less than 1.7%. More importantly, the model successfully predicted a gain or loss for the first five trading days. The difference between the forecast and actual return are indeed within 0.5%, which is exceptionally accurate. However, it is noteworthy that the five subsequent days of prediction parted away from the actual returns by quite a lot. Not only was the direction of return opposite, but some of the values were also off by more than 7%. Overall, we conclude that ARIMA would be suitable for stock analysis, even if the equity is generally unstable and extremely volatile. 
+
+```{r t2, echo=FALSE, warning=FALSE, message=FALSE}
+#fcst <- forecast(fit3)
+t<-diag$ttable
+kable(t[1:9, 1:1], col.names = c("Coefficient"), caption = "Intercept and Coefficient of ARIMA(4, 0, 4)")
+```
+
+```{r 4, , echo=FALSE, warning=FALSE, message=FALSE, fig.cap="GME Predicted Daily Returns with ARIMA(4, 0, 4) in Percentage"} 
+pred <- sarima.for(train$returns*100, 10, 4, 0, 4)
+```
+
+```{r t3, echo=FALSE, warning=FALSE, message=FALSE}
+kable(pred$pred, row.names = TRUE, col.names = c("returns"), caption = "Predicted Daily Returns of ARIMA(4, 0, 4)")
+
+```
+
+
+```{r t4, echo=FALSE, warning=FALSE, message=FALSE}
+kable(test$returns*100, caption = "Actual Daily Returns of GME")
+```
+
 
 # Discussion
 
-## First discussion point
+## Assumptions Violation
+The assumptions for statistical analysis are very important to modeling because different models are designed to fit specific types of data. While in the real world, no data can satisfy the model assumptions perfectly, the conditions should match as closely as possible for the model to work as it is intended. In earlier sections, we mentioned that ARIMA works on stationary time series, which means that the data are independent. To check in detail, statistical values such as residuals are computed and plotted to examine whether they have matched the criteria. We saw that most p-values for Ljung Box statistic  shown in figure \ref(fig:4) are not ideal. Even though the model had most predictions matched with the actual data, it still suggests ARIMA might not be a good fit for stock like GME or stocks in genergal.  
 
-If my paper were 10 pages, then should be be at least 2.5 pages. The discussion is a chance to show off what you know and what you learnt from all this. 
+## Limitation of ARIMA prediction
+In the \@ref(model) section, the written equation of ARIMA(4, 0, 4) clearly indicates that the model relies on the return and error term of the past four trading days. Thus, if the range of prediction exceeds four days, the forecast is indeed computed on predicted values rather than the actual historical data. This is reflected in our results where the first four predictions are much more accurate than the other ones, and the reason why the results begin to part off is because the model is relying on fabricated values.
 
-## Second discussion point
-
-## Third discussion point
+## Relation between individual stock and the stock market
+It should be noted that volume is a significant factor when it comes to the technical analysis of stocks. Using what we can find on data and news, the extreme values always happen on a trading day with an enormous amount activity, reflected in volume. During regular trading days, if the particular stock does not have catalyst news that serves to boost or tank the stock price, the trend of the stock particularly yields to the trend of the index or the ETF that it belongs to. With that being said, using ARIMA during times when the company does not have any special business movements would be more reliable, since ARIMA is univariate. On the other hand, this strategy should be avoided when the stock market is filled with speculation and uncertainty.  
 
 ## Weaknesses and next steps
+One of the weaknesses of this report is that it only focuses on one particular stock. Even though it might be the most representative out of the most volatile equities, more cases would strengthen the findings of this report. 
 
-Weaknesses and next steps should also be included.
-
-\newpage
-
-\appendix
-
-# Appendix {-}
-
-
-# Additional details
 
 
 \newpage
